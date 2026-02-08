@@ -1,211 +1,129 @@
-# 📚 Academic Journal Special Issues Tracker
+# 🔬 Scholar Issue Hunter
 
-自动追踪学术期刊开放征稿的特刊信息，并提供双语展示。
+**Scholar Issue Hunter** is a fully automated, GitHub-powered dashboard that tracks open "Call for Papers" (Special Issues) from top academic journals.
 
-A web application that automatically tracks open special issues from academic journals with bilingual display support.
+It eliminates the need to manually check journal websites. This system runs automatically in the cloud via **GitHub Actions**, scrapes the latest data, bypasses anti-bot protections, and publishes a beautiful dashboard to **GitHub Pages**.
+
+**[🔴 Live Demo](https://www.google.com/search?q=https://your-username.github.io/your-repo-name/)** ---
 
 ## ✨ Features
 
-- 🤖 **完全自动化** - 使用 Playwright 真实浏览器自动爬取，无需手动维护
-- 🔄 **每日更新** - 通过 GitHub Actions 每天自动运行
-- 🌍 **双语显示** - 支持英文+多种第二语言（中文、西班牙语、法语等）
-- 📱 **响应式设计** - 在各种设备上都有良好的显示效果
-- 🎯 **可扩展** - 轻松添加新期刊到追踪列表
-
-## 🚀 Quick Start
-
-### 1. 部署到 GitHub Pages
-
-1. Fork 这个仓库
-2. 进入仓库设置（Settings）
-3. 找到 "Pages" 选项
-4. 在 "Source" 下选择 `main` 分支和 `/` (root) 目录
-5. 点击 "Save"
-6. 等待几分钟后访问 `https://[你的用户名].github.io/[仓库名]/`
-
-### 2. 启用 GitHub Actions
-
-1. 进入仓库的 "Actions" 标签
-2. 如果看到提示，点击 "I understand my workflows, go ahead and enable them"
-3. 爬虫将每天自动运行一次，使用 Playwright 真实浏览器技术
-
-### 3. 手动触发更新
-
-1. 进入 "Actions" 标签
-2. 点击左侧的 "Update Special Issues Data"
-3. 点击右侧的 "Run workflow"
-4. 选择分支并点击 "Run workflow"
-
-## 🛠️ 技术架构
-
-### 为什么使用 Playwright？
-
-传统的爬虫（如 requests + BeautifulSoup）容易被现代网站的反爬虫机制阻止。本项目使用 **Playwright** 来解决这个问题：
-
-- ✅ **真实浏览器** - 模拟真实用户行为，绕过反爬虫检测
-- ✅ **JavaScript 渲染** - 完整渲染动态加载的内容
-- ✅ **稳定可靠** - 由 Microsoft 维护，专业级浏览器自动化
-- ✅ **GitHub Actions 兼容** - 完美支持无头模式运行
-
-### 工作流程
-
-1. GitHub Actions 每天定时触发
-2. Playwright 启动无头浏览器
-3. 访问期刊的特刊页面
-4. 提取特刊信息（标题、截止日期、编辑等）
-5. 保存为 JSON 数据
-6. 自动提交更新到仓库
-7. GitHub Pages 自动部署新版本
-
-## 📝 自定义配置
-
-### 添加新期刊
-
-编辑 `scraper.py` 文件中的 `journals` 列表：
-
-```python
-self.journals = [
-    {
-        'name': 'Remote Sensing of Environment',
-        'url': 'https://www.sciencedirect.com/journal/remote-sensing-of-environment/about/call-for-papers',
-        'backup_url': 'https://www.journals.elsevier.com/remote-sensing-of-environment/call-for-papers'
-    },
-    {
-        'name': 'Cities',
-        'url': 'https://www.sciencedirect.com/journal/cities/about/call-for-papers',
-        'backup_url': 'https://www.journals.elsevier.com/cities/call-for-papers'
-    },
-    # 在这里添加新的期刊
-    {
-        'name': '新期刊名称',
-        'url': '期刊特刊页面URL',
-        'backup_url': '备用URL（可选）'
-    }
-]
-```
-
-提交后，GitHub Actions 会自动使用新配置运行爬虫。
-
-### 修改更新频率
-
-编辑 `.github/workflows/update-data.yml` 中的 cron 表达式：
-
-```yaml
-schedule:
-  # 每天 8:00 AM UTC 运行
-  - cron: '0 8 * * *'
-  
-  # 其他示例：
-  # - cron: '0 */6 * * *'  # 每 6 小时
-  # - cron: '0 0 * * 0'    # 每周日
-  # - cron: '0 0 1 * *'    # 每月 1 号
-```
-
-### 添加新的第二语言
-
-编辑 `index.html` 中的语言选择器：
-
-```html
-<select id="secondLang">
-    <option value="zh-CN">中文 (Chinese)</option>
-    <!-- 添加新语言 -->
-    <option value="语言代码">语言名称</option>
-</select>
-```
-
-## 🛠️ 本地开发
-
-### 安装依赖
-
-```bash
-pip install -r requirements.txt
-playwright install chromium
-```
-
-### 运行爬虫
-
-```bash
-python scraper.py
-```
-
-### 本地预览网页
-
-```bash
-# 使用 Python 内置服务器
-python -m http.server 8000
-
-# 或使用 Node.js
-npx serve
-```
-
-然后访问 `http://localhost:8000`
-
-## 📊 数据结构
-
-特刊数据保存在 `data/special_issues.json`：
-
-```json
-{
-  "last_updated": "2026-02-08 12:00:00",
-  "journals": [
-    {
-      "name": "期刊名称",
-      "url": "期刊URL",
-      "special_issues": [
-        {
-          "title": "特刊标题",
-          "deadline": "截止日期",
-          "guest_editors": "客座编辑",
-          "description": "简介",
-          "url": "特刊详情链接"
-        }
-      ]
-    }
-  ]
-}
-```
-
-## ⚠️ 注意事项
-
-1. **Playwright 爬虫**：使用真实浏览器技术，比传统爬虫更可靠
-2. **翻译API**：当前使用免费的 Google Translate API，可能有使用限制
-3. **数据准确性**：自动爬取的数据已经过优化，但建议定期检查
-4. **GitHub Actions 限制**：
-   - 每个工作流最长运行 6 小时
-   - 免费账户有使用分钟数限制
-
-## 🔧 故障排查
-
-### 爬虫无法获取数据
-
-1. 检查期刊网站结构是否改变
-2. 查看 GitHub Actions 运行日志
-3. 尝试手动运行爬虫并检查错误信息
-
-### 网页显示异常
-
-1. 检查浏览器控制台是否有错误
-2. 确认 `data/special_issues.json` 文件格式正确
-3. 清除浏览器缓存
-
-### GitHub Actions 未运行
-
-1. 确认 Actions 已启用
-2. 检查 workflow 文件格式
-3. 查看仓库的 Actions 权限设置
-
-## 📄 License
-
-MIT License - 可自由使用和修改
-
-## 🤝 贡献
-
-欢迎提交 Issue 和 Pull Request！
-
-## 📧 联系
-
-如有问题或建议，请创建 Issue。
+* **☁️ Zero Server Cost**: Runs entirely on GitHub Actions (Free Tier).
+* **🛡️ Anti-Ban Capable**: Integrated with **ScraperAPI** to bypass 403 Forbidden/Cloudflare protections on ScienceDirect.
+* **🌍 Multi-Language**: Built-in "AI Summary" feature to translate journal descriptions into Chinese/Japanese/Korean/Spanish on demand.
+* **🧠 Smart Parsing**: Handles complex page layouts (e.g., nested `div` structures in *Cities* vs. standard layouts in *RSE*).
+* **📱 Modern UI**: Responsive design with journal filtering, search, and collapsible headers.
 
 ---
 
-**Built with ❤️ for the academic community**
+## 🚀 Deployment Guide (How to use this)
+
+You don't need to write code or install Python locally. Just follow these steps to get your own tracker running.
+
+### Step 1: Fork this Repository
+
+Click the **Fork** button at the top right of this page to copy this project to your own GitHub account.
+
+### Step 2: Get a ScraperAPI Key
+
+The scraper needs a proxy service to bypass Elsevier's firewalls.
+
+1. Go to [ScraperAPI](https://www.scraperapi.com/).
+2. Sign up for a free account (The free tier gives 1,000 credits/month, which is enough for daily updates).
+3. Copy your **API Key** from the dashboard.
+
+### Step 3: Configure GitHub Secrets
+
+To secure your API Key, we store it in GitHub Secrets.
+
+1. Go to your forked repository's **Settings** tab.
+2. On the left sidebar, click **Secrets and variables** > **Actions**.
+3. Click the **New repository secret** button.
+4. **Name**: `SCRAPER_API_KEY`
+5. **Secret**: Paste your ScraperAPI Key here.
+6. Click **Add secret**.
+
+### Step 4: Enable GitHub Actions
+
+Since this is a forked repo, workflows might be disabled by default.
+
+1. Go to the **Actions** tab.
+2. Click the green button **I understand my workflows, go ahead and enable them**.
+3. (Optional) To trigger the first run immediately: Select **"Auto Scrape Issues"** on the left -> Click **Run workflow**.
+
+### Step 5: Setup GitHub Pages
+
+This turns the data into a website.
+
+1. Go to the **Settings** tab.
+2. On the left sidebar, click **Pages**.
+3. Under **Build and deployment** > **Source**, select **Deploy from a branch**.
+4. **Branch**: Select `main` (or `master`) and folder `/ (root)`.
+5. Click **Save**.
+
+⏳ **Wait a few minutes.** After the Action finishes running (check the "Actions" tab), refresh the Pages settings. You will see a link like `https://yourname.github.io/scholar-issue-hunter/`. **Click it, and your site is live!**
+
+---
+
+## ⚙️ Configuration
+
+### Adding New Journals
+
+To track more journals, simply edit the `journals.json` file in your repository (you can edit it directly on GitHub website).
+
+**Format:**
+
+```json
+{
+  "name": "Journal Name",
+  "url": "https://www.sciencedirect.com/journal/.../about/call-for-papers",
+  "image": "assets/images/journal-cover.jpg"
+}
+
+```
+
+*Note: If you add a new journal, make sure to upload a cover image to `assets/images/` folder as well.*
+
+### Changing Update Frequency
+
+The scraper runs daily by default. To change this, edit `.github/workflows/scrape.yml`:
+
+```yaml
+on:
+  schedule:
+    - cron: '0 0 * * *'  # Runs at 00:00 UTC every day
+
+```
+
+---
+
+## 💻 For Developers (Advanced)
+
+If you want to modify the scraping logic or add a journal with a completely unique layout, you can debug locally.
+
+**Requirements:** `pip install requests beautifulsoup4`
+
+**Testing Rules (Offline Mode):**
+Use this to test parsing logic without consuming API credits.
+
+1. Save the target webpage as an `.html` file.
+2. Run the local debugger:
+```bash
+python scripts/scraper_local.py
+
+```
+
+
+
+**Structure:**
+
+* `scripts/scraper.py`: Main logic, handles network and file saving.
+* `scripts/parsers.py`: **Strategy Pattern**. Contains specific parsing rules for different journal layouts (e.g., `parse_cities_sciencedirect` vs `parse_rse_sciencedirect`).
+
+---
+
+## 📄 License
+
+MIT License.
+
+**Disclaimer**: This tool is for personal and educational research purposes only. Please verify all deadlines on the official journal websites.
