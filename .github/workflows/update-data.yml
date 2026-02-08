@@ -1,92 +1,44 @@
-name: Update Special Issues Data
+name: Auto-Scrape via API
 
 on:
   schedule:
-    # 每天 UTC 0:00 (北京时间 8:00) 运行 - 建议早上跑
-    - cron: '0 0 * * *'
-  
-  workflow_dispatch:  # 允许手动触发
-  
-  push:
-    branches:
-      - main
-    paths:
-      - 'scripts/scraper.py'   # 监听 scripts 目录
-      - 'requirements.txt'
+    - cron: '0 0 * * *' # 每天运行
+  workflow_dispatch:
 
 jobs:
-  update-data:
+  scrape:
     runs-on: ubuntu-latest
-    
     permissions:
-      contents: write  # 必须有这个权限才能推送代码
+      contents: write
     
     steps:
-      - name: Checkout repository
+      - name: Checkout code
         uses: actions/checkout@v4
-      
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
-          cache: 'pip'
-      
+
       - name: Install dependencies
         run: |
-          python -m pip install --upgrade pip
           pip install -r requirements.txt
-      
-      - name: Install Playwright Browsers
-        # 使用 python 命令安装，更稳定
+
+      - name: Run Scraper
+        env: 
+          # 👇 关键：把 Secret 注入到环境变量
+          SCRAPER_API_KEY: ${{ secrets.SCRAPER_API_KEY }}
         run: |
-          playwright install chromium --with-deps
-      
-      - name: Run Playwright scraper
-        run: |
-          echo "🚀 Starting scraper..."
-          # 注意：这里指向 scripts 文件夹
-          python scripts/scraper.py || echo "⚠️ Scraper encountered errors but continuing..."
-          
-      - name: Check scraper results
-        run: |
-          echo "🔍 Checking scraper results..."
-          # 注意：这里文件名改为了 issues.json (匹配 Python 代码)
-          if [ -f "data/issues.json" ]; then
-            echo "✅ JSON file created"
-            
-            # 简单验证 JSON 格式
-            cat data/issues.json | python -m json.tool > /dev/null && echo "✅ JSON is valid" || echo "❌ JSON is invalid"
-            
-            # 统计抓取到的数量 (逻辑微调以适配新的 JSON 结构)
-            ISSUE_COUNT=$(python -c "import json; data=json.load(open('data/issues.json')); print(sum(len(j.get('special_issues', [])) for j in data.get('journals', [])))" 2>/dev/null || echo "0")
-            echo "📊 Found $ISSUE_COUNT total special issues"
-            
-            if [ "$ISSUE_COUNT" -eq "0" ]; then
-              echo "⚠️ Warning: No special issues found. Please check logs/screenshots."
-            fi
-          else
-            echo "❌ Error: data/issues.json not found!"
-            exit 1
-          fi
-      
-      - name: Upload debug screenshots
-        uses: actions/upload-artifact@v4
-        if: always()  # 即使前面失败了也执行
-        with:
-          name: debug-screenshots
-          path: '*.png'  # 或者你的脚本保存截图的路径
-          retention-days: 5
-      
-      - name: Commit and push if changed
+          python scripts/scraper.py
+
+      - name: Commit and push
         run: |
           git config --global user.name 'github-actions[bot]'
           git config --global user.email 'github-actions[bot]@users.noreply.github.com'
-          # 注意：文件名统一
           git add data/issues.json
-          
           if git diff --staged --quiet; then
             echo "✨ No changes to commit"
           else
-            git commit -m "chore: update special issues data [skip ci]"
+            git commit -m "update: special issues data via API"
             git push
           fi

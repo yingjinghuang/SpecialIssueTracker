@@ -1,156 +1,113 @@
-#!/usr/bin/env python3
-import json
 import os
-import asyncio
-import random
+import json
+import requests
+from bs4 import BeautifulSoup
 from datetime import datetime
-from typing import List, Dict
-from playwright.async_api import async_playwright
 
-# 尝试导入 stealth
-try:
-    from playwright_stealth import stealth_async
-except ImportError:
-    async def stealth_async(page): pass
+# 从环境变量获取密钥
+API_KEY = os.environ.get('SCRAPER_API_KEY')
 
-class PlaywrightJournalScraper:
-    def __init__(self):
-        self.journals = [
-            {
-                'name': 'Remote Sensing of Environment',
-                'url': 'https://www.sciencedirect.com/journal/remote-sensing-of-environment/about/call-for-papers'
-            },
-            {
-                'name': 'Cities',
-                'url': 'https://www.sciencedirect.com/journal/cities/about/call-for-papers'
-            }
-        ]
+# 定义目标期刊
+JOURNALS = [
+    {
+        'name': 'Remote Sensing of Environment',
+        'url': 'https://www.sciencedirect.com/journal/remote-sensing-of-environment/about/call-for-papers'
+    },
+    {
+        'name': 'Cities',
+        'url': 'https://www.sciencedirect.com/journal/cities/about/call-for-papers'
+    }
+]
 
-    async def scrape_journal(self, context, journal_info: Dict) -> List[Dict]:
-        page = await context.new_page()
-        await stealth_async(page)
+def get_soup(target_url):
+    """
+    通过 ScraperAPI 获取渲染后的 HTML
+    """
+    if not API_KEY:
+        raise ValueError("❌ 缺少 API Key！请在 GitHub Secrets 中配置 SCRAPER_API_KEY")
+
+    payload = {
+        'api_key': API_KEY,
+        'url': target_url,
+        'render': 'true',  # 关键：告诉 API 帮我们渲染 JS
+        # 'country_code': 'us', # 可选：指定美国 IP
+    }
+    
+    print(f"   ☁️ Calling ScraperAPI for: {target_url} ...")
+    try:
+        r = requests.get('http://api.scraperapi.com', params=payload, timeout=60)
+        if r.status_code == 200:
+            print("   ✅ Success! Content received.")
+            return BeautifulSoup(r.text, 'html.parser')
+        else:
+            print(f"   ❌ Failed: {r.status_code} - {r.text}")
+            return None
+    except Exception as e:
+        print(f"   ❌ Error: {e}")
+        return None
+
+def parse_journal(journal):
+    print(f"📖 Scraping {journal['name']}...")
+    soup = get_soup(journal['url'])
+    issues = []
+    
+    if not soup:
+        return []
+
+    # BeautifulSoup 查找逻辑
+    # 寻找所有 href 包含 special-issue 的 a 标签
+    links = soup.select('a[href*="/special-issue/"]')
+    print(f"   🔍 Found {len(links)} raw links.")
+
+    seen_urls = set()
+    
+    for link in links:
+        title = link.get_text(strip=True)
+        url = link.get('href')
         
-        issues = []
-        try:
-            print(f"📖 Scraping {journal_info['name']}...")
+        if not title or not url:
+            continue
             
-            # --- 关键策略 1: 伪装 Referer (假装来自 Google) ---
-            await page.set_extra_http_headers({
-                "Referer": "https://www.google.com/",
-                "Accept-Language": "en-US,en;q=0.9",
-                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+        # 补全 URL
+        if not url.startswith('http'):
+            url = 'https://www.sciencedirect.com' + url
+            
+        if url not in seen_urls:
+            seen_urls.add(url)
+            issues.append({
+                'title': title,
+                'url': url,
+                'deadline': 'Check Link', # 如果想进一步抓详情，需要再调一次 API
+                'last_updated': datetime.now().strftime('%Y-%m-%d')
             })
-
-            # --- 关键策略 2: 迂回战术 (先访问首页领 Cookie) ---
-            print("   Drafting cookies from homepage...")
-            try:
-                await page.goto("https://www.sciencedirect.com/", wait_until='domcontentloaded', timeout=30000)
-                await asyncio.sleep(random.uniform(2, 4)) # 假装人在看首页
-            except Exception as e:
-                print(f"   ⚠️ Homepage load warning: {e}")
-
-            # --- 关键策略 3: 跳转到目标页 ---
-            print("   Navigating to target page...")
-            response = await page.goto(journal_info['url'], wait_until='domcontentloaded', timeout=60000)
             
-            # 检查是否被拦截
-            page_content = await page.content()
-            if "There was a problem providing the content" in page_content or response.status == 403:
-                print(f"   🚫 Blocked! Taking screenshot...")
-                await page.screenshot(path=f"blocked_{journal_info['name'].replace(' ', '_')}.png")
-                return []
+    print(f"   ✅ Extracted {len(issues)} unique issues.")
+    return issues
 
-            # 正常等待渲染
-            await asyncio.sleep(5) 
-            
-            # 截图留证 (无论成功失败都存一张，方便调试)
-            await page.screenshot(path=f"debug_{journal_info['name'].replace(' ', '_')}.png")
-
-            # 查找链接 (针对 ScienceDirect 的结构调整)
-            # 寻找 href 中包含 /special-issue/ 的链接
-            links = page.locator('a[href*="/special-issue/"]')
-            count = await links.count()
-            print(f"   Found {count} potential links.")
-
-            for i in range(count):
-                element = links.nth(i)
-                title = await element.text_content()
-                url = await element.get_attribute('href')
-                
-                if title and url:
-                    full_url = url if url.startswith('http') else f"https://www.sciencedirect.com{url}"
-                    issues.append({
-                        'title': title.strip(),
-                        'url': full_url,
-                        'deadline': 'Check Link',
-                        'last_updated': datetime.now().strftime('%Y-%m-%d')
-                    })
-
-        except Exception as e:
-            print(f"   ✗ Error: {e}")
-            await page.screenshot(path=f"error_{journal_info['name'].replace(' ', '_')}.png")
-        finally:
-            await page.close()
+def main():
+    print("=" * 60)
+    print(f"🚀 Started at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    
+    results = {
+        'last_updated': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+        'journals': []
+    }
+    
+    for journal in JOURNALS:
+        issues = parse_journal(journal)
+        results['journals'].append({
+            'name': journal['name'],
+            'url': journal['url'],
+            'special_issues': issues
+        })
+    
+    # 保存结果
+    os.makedirs('data', exist_ok=True)
+    with open('data/issues.json', 'w', encoding='utf-8') as f:
+        json.dump(results, f, ensure_ascii=False, indent=2)
         
-        return self.deduplicate(issues)
-
-    def deduplicate(self, issues: List[Dict]) -> List[Dict]:
-        seen = set()
-        unique = []
-        for i in issues:
-            key = i['url']
-            if key not in seen:
-                seen.add(key)
-                unique.append(i)
-        return unique
-
-    async def run(self):
-        print("=" * 60)
-        print(f"🚀 Started at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-        
-        results = {
-            'last_updated': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-            'journals': []
-        }
-        
-        async with async_playwright() as p:
-            # 使用稍微旧一点的 User-Agent，有时候反而更稳
-            browser = await p.chromium.launch(
-                headless=True,
-                args=[
-                    '--disable-blink-features=AutomationControlled',
-                    '--no-sandbox',
-                    '--disable-setuid-sandbox',
-                ]
-            )
-            
-            context = await browser.new_context(
-                viewport={'width': 1366, 'height': 768}, # 普通笔记本分辨率
-                user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36'
-            )
-            
-            # 注入webdriver移除脚本
-            await context.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
-
-            for journal in self.journals:
-                issues = await self.scrape_journal(context, journal)
-                results['journals'].append({
-                    'name': journal['name'],
-                    'url': journal['url'],
-                    'special_issues': issues
-                })
-                print(f"   ✅ Collected {len(issues)} issues.")
-                # 必须休息，防止请求过快被封 IP
-                await asyncio.sleep(random.uniform(5, 10))
-
-            await browser.close()
-            
-        os.makedirs('data', exist_ok=True)
-        with open('data/issues.json', 'w', encoding='utf-8') as f:
-            json.dump(results, f, ensure_ascii=False, indent=2)
-        
-        print(f"💾 Data saved to data/issues.json")
-        print("=" * 60)
+    print(f"💾 Data saved to data/issues.json")
+    print("=" * 60)
 
 if __name__ == "__main__":
-    asyncio.run(PlaywrightJournalScraper().run())
+    main()
