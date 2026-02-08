@@ -69,6 +69,14 @@ jobs:
             exit 1
           fi
       
+      - name: Upload debug screenshots
+        uses: actions/upload-artifact@v4
+        if: always()  # 即使前面失败了也执行
+        with:
+          name: debug-screenshots
+          path: scripts/*.png  # 或者你的脚本保存截图的路径
+          retention-days: 5
+      
       - name: Commit and push if changed
         run: |
           git config --global user.name 'github-actions[bot]'

@@ -97,14 +97,33 @@ class PlaywrightJournalScraper:
         }
         
         async with async_playwright() as p:
-            # 本地调试时，建议把 headless=False 打开，肉眼看看浏览器发生了什么
-            # 正式部署时再改为 True
-            browser = await p.chromium.launch(headless=True) 
+            # ⚠️ 关键修改：添加防检测参数
+            browser = await p.chromium.launch(
+                headless=True,
+                args=[
+                    '--disable-blink-features=AutomationControlled', # 移除自动化特征
+                    '--no-sandbox', 
+                    '--disable-setuid-sandbox',
+                    '--disable-infobars',
+                    '--window-position=0,0',
+                    '--ignore-certificate-errors',
+                    '--window-size=1920,1080',
+                    '--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36' 
+                ]
+            )
             
             context = await browser.new_context(
-                user_agent='Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                viewport={'width': 1920, 'height': 1080}
+                viewport={'width': 1920, 'height': 1080},
+                # 再次覆盖 User Agent 确保万无一失
+                user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36'
             )
+            
+            # 为每个页面注入 JS，彻底抹除 webdriver 痕迹
+            await context.add_init_script("""
+                Object.defineProperty(navigator, 'webdriver', {
+                    get: () => undefined
+                });
+            """)
             
             for journal in self.journals:
                 issues = await self.scrape_journal(context, journal)
