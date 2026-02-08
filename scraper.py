@@ -36,98 +36,69 @@ class PlaywrightJournalScraper:
         issues = []
         try:
             print(f"📖 Scraping {journal_info['name']}...")
-            # 1. 访问页面
-            await page.goto(journal_info['url'], wait_until='domcontentloaded', timeout=60000)
+            # 增加随机延时，模拟真人
+            await page.goto(journal_info['url'], wait_until='networkidle', timeout=90000)
             
-            # 2. 关键：等待数据列表容器渲染完成 (基于你提供的源码类名)
-            try:
-                await page.wait_for_selector('li.list-item', timeout=20000)
-                # 额外缓冲，确保 React 列表渲染完整
-                await asyncio.sleep(2) 
-            except:
-                print(f"   ⚠ Timeout: 'li.list-item' not found. Page might be empty or loading too slow.")
+            # 暴力等待：无论如何先等 10 秒，给 React 充分的渲染时间
+            await asyncio.sleep(10) 
+            
+            # 模拟一点滚动
+            await page.evaluate("window.scrollTo(0, document.body.scrollHeight/2)")
+            await asyncio.sleep(2)
 
-            # 3. 滚动以触发可能的懒加载
-            await page.mouse.wheel(0, 1000)
-            await asyncio.sleep(1)
+            # 获取完整的 HTML 源码
+            html_content = await page.content()
+            print(f"   Source code obtained ({len(html_content)} chars). Scanning...")
 
-            # 4. 执行抓取逻辑
-            issues = await self.extract_logic(page)
-            print(f"   ✓ Success: Found {len(issues)} special issues")
+            # 执行提取
+            issues = await self.extract_logic(page, html_content)
+            print(f"   ✓ Success: Found {len(issues)} issues")
 
         except Exception as e:
-            print(f"   ✗ Error scraping {journal_info['name']}: {str(e)[:100]}")
+            print(f"   ✗ Error: {str(e)[:100]}")
         finally:
             await page.close()
-        
         return issues
 
-    async def extract_logic(self, page) -> List[Dict]:
-        """针对 ScienceDirect HTML 结构的精准提取"""
-        scraped_data = []
+    async def extract_logic(self, page, html_content: str) -> List[Dict]:
+        """组合拳：DOM 选择器 + 正则全文扫描"""
+        issues = []
         
-        # 定位所有的列表条目
+        # 1. 首先尝试最正规的 DOM 提取
         items = await page.query_selector_all('li.list-item')
-        
         for item in items:
             try:
-                # A. 提取标题和 URL (基于源码: a.anchor.title)
-                title_link = await item.query_selector('h3 a.anchor.title')
-                if not title_link:
-                    continue
-                
-                title = await title_link.inner_text()
-                href = await title_link.get_attribute('href')
-                
-                # B. 提取截止日期 (基于源码: div.text-xs)
-                deadline = "Not specified"
-                deadline_elem = await item.query_selector('div.text-xs')
-                if deadline_elem:
-                    deadline_text = await deadline_elem.inner_text()
-                    # 正则匹配日期部分
-                    match = re.search(r'deadline:\s*(.*)', deadline_text, re.IGNORECASE)
-                    if match:
-                        deadline = match.group(1).strip()
+                title_link = await item.query_selector('a[href*="/special-issue/"]')
+                if title_link:
+                    title = await title_link.inner_text()
+                    href = await title_link.get_attribute('href')
+                    issues.append({
+                        'title': title.strip(),
+                        'url': 'https://www.sciencedirect.com' + href if href.startswith('/') else href,
+                        'deadline': "Parsing...",
+                        'last_updated': datetime.now().strftime('%Y-%m-%d')
+                    })
+            except: continue
 
-                # C. 提取客座编辑 (基于源码: p.summary)
-                editors = "Not specified"
-                editor_elem = await item.query_selector('p.summary')
-                if editor_elem:
-                    editor_text = await editor_elem.inner_text()
-                    editors = editor_text.replace('Guest editors:', '').strip()
+        # 2. 如果 DOM 提取失败，启动正则扫描 (暴力提取所有 SI 链接)
+        if not issues:
+            # 匹配模式：寻找 /special-issue/ 开头的链接及其前后的文本
+            # 这个正则会抓取 href 及其标签内的文本
+            pattern = r'href="(/special-issue/[^"]+)"[^>]*>.*?<span>(.*?)</span>'
+            matches = re.findall(pattern, html_content, re.DOTALL)
+            
+            for href, title in matches:
+                # 过滤掉 HTML 标签
+                clean_title = re.sub(r'<[^>]+>', '', title).strip()
+                if len(clean_title) > 10:
+                    issues.append({
+                        'title': clean_title,
+                        'url': 'https://www.sciencedirect.com' + href,
+                        'deadline': "Check website",
+                        'last_updated': datetime.now().strftime('%Y-%m-%d')
+                    })
 
-                # 补全 URL
-                full_url = href if href.startswith('http') else 'https://www.sciencedirect.com' + href
-
-                scraped_data.append({
-                    'title': title.strip(),
-                    'url': full_url,
-                    'deadline': deadline,
-                    'guest_editors': editors,
-                    'last_updated': datetime.now().strftime('%Y-%m-%d')
-                })
-            except:
-                continue
-                
-        # 如果 li 抓取失败，启动方案 B：直接抓取所有 SI 链接
-        if not scraped_data:
-            print("   🔍 Falling back to Link-based scan...")
-            all_si_links = await page.query_selector_all('a[href*="/special-issue/"]')
-            for link in all_si_links:
-                try:
-                    t = await link.inner_text()
-                    u = await link.get_attribute('href')
-                    if len(t) > 15:
-                        scraped_data.append({
-                            'title': t.strip(),
-                            'url': u if u.startswith('http') else 'https://www.sciencedirect.com' + u,
-                            'deadline': "See link",
-                            'guest_editors': "See link",
-                            'last_updated': datetime.now().strftime('%Y-%m-%d')
-                        })
-                except: continue
-
-        return self.deduplicate(scraped_data)
+        return self.deduplicate(issues)
 
     def deduplicate(self, issues: List[Dict]) -> List[Dict]:
         seen = set()
