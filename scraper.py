@@ -61,43 +61,54 @@ class PlaywrightJournalScraper:
         return issues
 
     async def extract_logic(self, page, html_content: str) -> List[Dict]:
-        """组合拳：DOM 选择器 + 正则全文扫描"""
+        """从隐藏的 JSON 变量或原始文本中挖掘数据"""
         issues = []
         
-        # 1. 首先尝试最正规的 DOM 提取
-        items = await page.query_selector_all('li.list-item')
-        for item in items:
+        print("   🔍 Deep scanning source for hidden data patterns...")
+
+        # 方案 A: 寻找链接模式 (不带 HTML 标签，直接搜字符串)
+        # 匹配 URL: /special-issue/数字/标题
+        links = re.findall(r'/special-issue/(\d+)/([^"\' >]+)', html_content)
+        for issue_id, slug in links:
+            # 将 slug 转换为可读标题 (例如 geospatial-foundation-models -> Geospatial Foundation Models)
+            title = slug.replace('-', ' ').title()
+            issues.append({
+                'title': title,
+                'url': f'https://www.sciencedirect.com/special-issue/{issue_id}/{slug}',
+                'deadline': "Check Link",
+                'last_updated': datetime.now().strftime('%Y-%m-%d')
+            })
+
+        # 方案 B: 寻找 JSON 数组 (ScienceDirect 常见的内部存储格式)
+        # 寻找包含 "specialIssueTitle" 或 "submissionDeadline" 的 JSON 块
+        json_blobs = re.findall(r'\{"title":"[^"]+","url":"[^"]*special-issue[^"]*"\}', html_content)
+        for blob in json_blobs:
             try:
-                title_link = await item.query_selector('a[href*="/special-issue/"]')
-                if title_link:
-                    title = await title_link.inner_text()
-                    href = await title_link.get_attribute('href')
-                    issues.append({
-                        'title': title.strip(),
-                        'url': 'https://www.sciencedirect.com' + href if href.startswith('/') else href,
-                        'deadline': "Parsing...",
-                        'last_updated': datetime.now().strftime('%Y-%m-%d')
-                    })
+                data = json.loads(blob)
+                issues.append({
+                    'title': data.get('title', 'Unknown'),
+                    'url': 'https://www.sciencedirect.com' + data.get('url', ''),
+                    'deadline': data.get('deadline', 'Unknown'),
+                    'last_updated': datetime.now().strftime('%Y-%m-%d')
+                })
             except: continue
 
-        # 2. 如果 DOM 提取失败，启动正则扫描 (暴力提取所有 SI 链接)
-        if not issues:
-            # 匹配模式：寻找 /special-issue/ 开头的链接及其前后的文本
-            # 这个正则会抓取 href 及其标签内的文本
-            pattern = r'href="(/special-issue/[^"]+)"[^>]*>.*?<span>(.*?)</span>'
-            matches = re.findall(pattern, html_content, re.DOTALL)
-            
-            for href, title in matches:
-                # 过滤掉 HTML 标签
-                clean_title = re.sub(r'<[^>]+>', '', title).strip()
-                if len(clean_title) > 10:
-                    issues.append({
-                        'title': clean_title,
-                        'url': 'https://www.sciencedirect.com' + href,
-                        'deadline': "Check website",
-                        'last_updated': datetime.now().strftime('%Y-%m-%d')
-                    })
+        # 方案 C: 针对你提供的源码中出现的具体文案进行正则定位
+        # 寻找 <h3><span>...</span></h3> 这种特定结构
+        matches = re.findall(r'<span>([^<]{15,100}?)</span>', html_content)
+        for match in matches:
+            # 过滤掉明显的非标题文案
+            if any(x in match.lower() for x in ['cookie', 'elsevier', 'sciencedirect', 'rights reserved']):
+                continue
+            # 如果看起来像个学术标题，就收录
+            issues.append({
+                'title': match.strip(),
+                'url': "Search on site",
+                'deadline': "Unknown",
+                'last_updated': datetime.now().strftime('%Y-%m-%d')
+            })
 
+        # 去重并过滤掉垃圾信息
         return self.deduplicate(issues)
 
     def deduplicate(self, issues: List[Dict]) -> List[Dict]:
