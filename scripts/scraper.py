@@ -2,11 +2,12 @@
 import json
 import os
 import asyncio
+import random
 from datetime import datetime
 from typing import List, Dict
 from playwright.async_api import async_playwright
 
-# 尝试导入 stealth，如果没有也不强求（Github Actions 里可能需要特殊配置）
+# 尝试导入 stealth
 try:
     from playwright_stealth import stealth_async
 except ImportError:
@@ -32,45 +33,62 @@ class PlaywrightJournalScraper:
         issues = []
         try:
             print(f"📖 Scraping {journal_info['name']}...")
-            # 增加 timeout 防止网络慢报错
-            await page.goto(journal_info['url'], wait_until='domcontentloaded', timeout=60000)
             
-            # 等待 5 秒让 JS 加载
+            # --- 关键策略 1: 伪装 Referer (假装来自 Google) ---
+            await page.set_extra_http_headers({
+                "Referer": "https://www.google.com/",
+                "Accept-Language": "en-US,en;q=0.9",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+            })
+
+            # --- 关键策略 2: 迂回战术 (先访问首页领 Cookie) ---
+            print("   Drafting cookies from homepage...")
+            try:
+                await page.goto("https://www.sciencedirect.com/", wait_until='domcontentloaded', timeout=30000)
+                await asyncio.sleep(random.uniform(2, 4)) # 假装人在看首页
+            except Exception as e:
+                print(f"   ⚠️ Homepage load warning: {e}")
+
+            # --- 关键策略 3: 跳转到目标页 ---
+            print("   Navigating to target page...")
+            response = await page.goto(journal_info['url'], wait_until='domcontentloaded', timeout=60000)
+            
+            # 检查是否被拦截
+            page_content = await page.content()
+            if "There was a problem providing the content" in page_content or response.status == 403:
+                print(f"   🚫 Blocked! Taking screenshot...")
+                await page.screenshot(path=f"blocked_{journal_info['name'].replace(' ', '_')}.png")
+                return []
+
+            # 正常等待渲染
             await asyncio.sleep(5) 
             
-            # --- 关键调试步骤 ---
-            # 如果抓不到数据，查看当前目录下生成的 debug_截图.png，看看是不是出现了验证码
-            screenshot_path = f"debug_{journal_info['name'].replace(' ', '_')}.png"
-            await page.screenshot(path=screenshot_path)
-            print(f"   📸 Debug screenshot saved to {screenshot_path}")
-            # --------------------
+            # 截图留证 (无论成功失败都存一张，方便调试)
+            await page.screenshot(path=f"debug_{journal_info['name'].replace(' ', '_')}.png")
 
-            # 使用 Locator 查找所有包含 special-issue 的链接
-            # ScienceDirect 的结构通常是列表，我们直接找 href 里带 special-issue 的 a 标签
+            # 查找链接 (针对 ScienceDirect 的结构调整)
+            # 寻找 href 中包含 /special-issue/ 的链接
             links = page.locator('a[href*="/special-issue/"]')
-            
             count = await links.count()
-            print(f"   Found {count} potential links via Locator.")
+            print(f"   Found {count} potential links.")
 
             for i in range(count):
                 element = links.nth(i)
                 title = await element.text_content()
                 url = await element.get_attribute('href')
                 
-                # 简单清洗数据
                 if title and url:
-                    # 补全 URL
                     full_url = url if url.startswith('http') else f"https://www.sciencedirect.com{url}"
-                    
                     issues.append({
                         'title': title.strip(),
                         'url': full_url,
-                        'deadline': 'Check Link', # deadline 往往藏在详情页，列表页很难抓准，先略过
+                        'deadline': 'Check Link',
                         'last_updated': datetime.now().strftime('%Y-%m-%d')
                     })
 
         except Exception as e:
             print(f"   ✗ Error: {e}")
+            await page.screenshot(path=f"error_{journal_info['name'].replace(' ', '_')}.png")
         finally:
             await page.close()
         
@@ -80,7 +98,6 @@ class PlaywrightJournalScraper:
         seen = set()
         unique = []
         for i in issues:
-            # 用 URL 做去重键更准确
             key = i['url']
             if key not in seen:
                 seen.add(key)
@@ -97,34 +114,24 @@ class PlaywrightJournalScraper:
         }
         
         async with async_playwright() as p:
-            # ⚠️ 关键修改：添加防检测参数
+            # 使用稍微旧一点的 User-Agent，有时候反而更稳
             browser = await p.chromium.launch(
                 headless=True,
                 args=[
-                    '--disable-blink-features=AutomationControlled', # 移除自动化特征
-                    '--no-sandbox', 
+                    '--disable-blink-features=AutomationControlled',
+                    '--no-sandbox',
                     '--disable-setuid-sandbox',
-                    '--disable-infobars',
-                    '--window-position=0,0',
-                    '--ignore-certificate-errors',
-                    '--window-size=1920,1080',
-                    '--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36' 
                 ]
             )
             
             context = await browser.new_context(
-                viewport={'width': 1920, 'height': 1080},
-                # 再次覆盖 User Agent 确保万无一失
-                user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36'
+                viewport={'width': 1366, 'height': 768}, # 普通笔记本分辨率
+                user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36'
             )
             
-            # 为每个页面注入 JS，彻底抹除 webdriver 痕迹
-            await context.add_init_script("""
-                Object.defineProperty(navigator, 'webdriver', {
-                    get: () => undefined
-                });
-            """)
-            
+            # 注入webdriver移除脚本
+            await context.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+
             for journal in self.journals:
                 issues = await self.scrape_journal(context, journal)
                 results['journals'].append({
@@ -132,13 +139,12 @@ class PlaywrightJournalScraper:
                     'url': journal['url'],
                     'special_issues': issues
                 })
-                # 打印一下结果预览
                 print(f"   ✅ Collected {len(issues)} issues.")
-                await asyncio.sleep(3) # 休息一下
+                # 必须休息，防止请求过快被封 IP
+                await asyncio.sleep(random.uniform(5, 10))
 
             await browser.close()
             
-        # 保存结果
         os.makedirs('data', exist_ok=True)
         with open('data/issues.json', 'w', encoding='utf-8') as f:
             json.dump(results, f, ensure_ascii=False, indent=2)
