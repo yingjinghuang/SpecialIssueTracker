@@ -6,10 +6,11 @@ A web application that automatically tracks open special issues from academic jo
 
 ## ✨ Features
 
-- 🔄 **自动更新** - 通过 GitHub Actions 每日自动爬取最新特刊信息
+- 🤖 **完全自动化** - 使用 Playwright 真实浏览器自动爬取，无需手动维护
+- 🔄 **每日更新** - 通过 GitHub Actions 每天自动运行
 - 🌍 **双语显示** - 支持英文+多种第二语言（中文、西班牙语、法语等）
 - 📱 **响应式设计** - 在各种设备上都有良好的显示效果
-- 🎯 **可自定义** - 轻松添加或删除要追踪的期刊
+- 🎯 **可扩展** - 轻松添加新期刊到追踪列表
 
 ## 🚀 Quick Start
 
@@ -26,7 +27,7 @@ A web application that automatically tracks open special issues from academic jo
 
 1. 进入仓库的 "Actions" 标签
 2. 如果看到提示，点击 "I understand my workflows, go ahead and enable them"
-3. 爬虫将每天自动运行一次
+3. 爬虫将每天自动运行一次，使用 Playwright 真实浏览器技术
 
 ### 3. 手动触发更新
 
@@ -34,6 +35,27 @@ A web application that automatically tracks open special issues from academic jo
 2. 点击左侧的 "Update Special Issues Data"
 3. 点击右侧的 "Run workflow"
 4. 选择分支并点击 "Run workflow"
+
+## 🛠️ 技术架构
+
+### 为什么使用 Playwright？
+
+传统的爬虫（如 requests + BeautifulSoup）容易被现代网站的反爬虫机制阻止。本项目使用 **Playwright** 来解决这个问题：
+
+- ✅ **真实浏览器** - 模拟真实用户行为，绕过反爬虫检测
+- ✅ **JavaScript 渲染** - 完整渲染动态加载的内容
+- ✅ **稳定可靠** - 由 Microsoft 维护，专业级浏览器自动化
+- ✅ **GitHub Actions 兼容** - 完美支持无头模式运行
+
+### 工作流程
+
+1. GitHub Actions 每天定时触发
+2. Playwright 启动无头浏览器
+3. 访问期刊的特刊页面
+4. 提取特刊信息（标题、截止日期、编辑等）
+5. 保存为 JSON 数据
+6. 自动提交更新到仓库
+7. GitHub Pages 自动部署新版本
 
 ## 📝 自定义配置
 
@@ -46,21 +68,23 @@ self.journals = [
     {
         'name': 'Remote Sensing of Environment',
         'url': 'https://www.sciencedirect.com/journal/remote-sensing-of-environment/about/call-for-papers',
-        'type': 'elsevier'
+        'backup_url': 'https://www.journals.elsevier.com/remote-sensing-of-environment/call-for-papers'
     },
     {
         'name': 'Cities',
         'url': 'https://www.sciencedirect.com/journal/cities/about/call-for-papers',
-        'type': 'elsevier'
+        'backup_url': 'https://www.journals.elsevier.com/cities/call-for-papers'
     },
     # 在这里添加新的期刊
     {
         'name': '新期刊名称',
         'url': '期刊特刊页面URL',
-        'type': 'elsevier'  # 或其他类型
+        'backup_url': '备用URL（可选）'
     }
 ]
 ```
+
+提交后，GitHub Actions 会自动使用新配置运行爬虫。
 
 ### 修改更新频率
 
@@ -95,6 +119,7 @@ schedule:
 
 ```bash
 pip install -r requirements.txt
+playwright install chromium
 ```
 
 ### 运行爬虫
@@ -142,9 +167,12 @@ npx serve
 
 ## ⚠️ 注意事项
 
-1. **爬虫限制**：某些期刊网站可能有反爬虫机制，如果遇到问题，可能需要调整爬虫策略
+1. **Playwright 爬虫**：使用真实浏览器技术，比传统爬虫更可靠
 2. **翻译API**：当前使用免费的 Google Translate API，可能有使用限制
-3. **数据准确性**：自动爬取的数据可能不完全准确，建议定期检查
+3. **数据准确性**：自动爬取的数据已经过优化，但建议定期检查
+4. **GitHub Actions 限制**：
+   - 每个工作流最长运行 6 小时
+   - 免费账户有使用分钟数限制
 
 ## 🔧 故障排查
 

@@ -13,9 +13,11 @@ on:
     paths:
       - 'scraper.py'
       - 'requirements.txt'
+      - 'manual_issues.yaml'
+      - 'update_manual.py'
 
 jobs:
-  scrape-and-update:
+  update-data:
     runs-on: ubuntu-latest
     
     permissions:
@@ -36,9 +38,24 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
       
-      - name: Run scraper
+      - name: Install Playwright browsers
+        run: |
+          playwright install --with-deps chromium
+      
+      - name: Run Playwright scraper
         run: |
           python scraper.py
+          
+      - name: Fallback to manual configuration if scraper produces no data
+        run: |
+          # Check if scraper produced valid data
+          ISSUE_COUNT=$(python -c "import json; data=json.load(open('data/special_issues.json')); print(sum(len(j['special_issues']) for j in data['journals']))")
+          if [ "$ISSUE_COUNT" -eq "0" ]; then
+            echo "⚠️ Scraper found no issues, using manual configuration as fallback"
+            python update_manual.py
+          else
+            echo "✓ Scraper found $ISSUE_COUNT issues"
+          fi
       
       - name: Commit and push if changed
         run: |
